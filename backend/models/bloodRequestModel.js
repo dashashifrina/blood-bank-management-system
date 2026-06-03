@@ -27,6 +27,12 @@ const bloodRequestSchema = new mongoose.Schema({
     enum: ["pending", "accepted", "rejected"], 
     default: "pending" 
   },
+  // Optional: the patient's blood type, used to validate compatibility before requesting
+  patientBloodType: {
+    type: String,
+    enum: ["A+", "A-", "B+", "B-", "O+", "O-", "AB+", "AB-"],
+    // NOT required — omitting this field preserves backward compatibility
+  },
   processedAt: Date,
   notes: String
 }, { timestamps: true });

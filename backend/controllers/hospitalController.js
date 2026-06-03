@@ -2,6 +2,7 @@ import Blood from "../models/bloodModel.js";
 import Facility from "../models/facilityModel.js";
 import BloodRequest from "../models/bloodRequestModel.js";
 import Donor from "../models/donorModel.js";
+import { isCompatible } from "../utils/bloodTypeCompatibility.js";
 
 /* ==============================================================
    HOSPITAL BLOOD REQUEST MANAGEMENT
@@ -15,7 +16,7 @@ import Donor from "../models/donorModel.js";
 export const hospitalRequestBlood = async (req, res) => {
   try {
     const hospitalId = req.user._id;
-    const { labId, bloodType, units } = req.body;
+    const { labId, bloodType, units, patientBloodType } = req.body;
 
     // Validation
     if (!labId || !bloodType || !units) {
@@ -30,6 +31,16 @@ export const hospitalRequestBlood = async (req, res) => {
         success: false,
         message: "Units must be at least 1"
       });
+    }
+
+    // Blood type compatibility check (only when patientBloodType is provided)
+    if (patientBloodType) {
+      if (!isCompatible(bloodType, patientBloodType)) {
+        return res.status(400).json({
+          success: false,
+          message: `Incompatible blood type: ${bloodType} cannot be given to a patient with blood type ${patientBloodType}`
+        });
+      }
     }
 
     // Check if lab exists and is approved
@@ -47,12 +58,18 @@ export const hospitalRequestBlood = async (req, res) => {
     }
 
     // Create blood request
-    const request = await BloodRequest.create({
+    const requestData = {
       hospitalId,
       labId,
       bloodType,
       units
-    });
+    };
+
+    if (patientBloodType) {
+      requestData.patientBloodType = patientBloodType;
+    }
+
+    const request = await BloodRequest.create(requestData);
 
     // Add to hospital history
     await Facility.findByIdAndUpdate(hospitalId, {
