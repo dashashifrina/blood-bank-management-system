@@ -1,7 +1,7 @@
 ---
 name: local-dev
-version: 1.0.0
-description: Bring this repo local dev environment up from scratch.
+version: 2.0.0
+description: Bring this repo's local dev environment up from scratch.
 category: local-dev
 triggers:
   - local dev setup
@@ -10,86 +10,91 @@ triggers:
   - bring up local stack
 author: autobuild-setup
 created: 2026-06-03
+updated: 2026-08-21
 ---
 
 ## Prerequisites
 
-- Node.js v20.x (verified: v20.20.2)
-- npm v10.x (verified: v10.8.2)
-- MongoDB v8.0 (install via apt if not present)
-- Docker (optional): Docker Compose recommended when available
+- Node.js v20.x (verified: v20.20.2) + npm v10.x (verified: 10.8.2)
+- Internet access (npm registry + mongodb-memory-server binary download)
+- Docker NOT required (unavailable in sandbox; compose path documented below for machines that have it)
 
 ## Install
 
-MongoDB 8.0 on Linux:
-  sudo bash apt install mongodb-org -- see README for full apt command
-
-Backend: cd backend && npm install
-Frontend: cd frontend && npm install
+    cd backend && npm ci
+    cd frontend && npm ci
 
 ## Environment
 
-backend/.env:
-  MONGO_URI=mongodb://127.0.0.1:27017/bbms
-  JWT_SECRET=dev-local-secret-do-not-use-in-production
-  PORT=5000
+backend/.env (gitignored):
 
-frontend/.env:
-  VITE_API_URL=http://localhost:5000
-  VITE_WEBSITE_NAME=Blood Bank Management System
+    MONGO_URI=mongodb://127.0.0.1:27017/bbms
+    JWT_SECRET=<any long random string, e.g. openssl rand -hex 32>
+    PORT=5000
 
-## Start
+frontend/.env (gitignored):
 
-Without Docker:
-  1. sudo mkdir -p /data/db && sudo chown USER /data/db
-  2. mongod --dbpath /data/db --fork --logpath /var/log/mongodb/mongod.log --bind_ip 127.0.0.1
-  3. cd backend && node seedAdmin.js   # first time only
-  4. cd backend && nohup node server.js > /tmp/backend.log 2>&1 &
-  5. cd frontend && nohup npm run dev > /tmp/frontend.log 2>&1 &
-  Admin: suraj@admin.com / bbms@admin
+    VITE_API_URL=http://localhost:5000
+    VITE_WEBSITE_NAME=BBMS
 
-Docker (when available):
-  docker compose up --build -d
-  Frontend -> http://localhost (port 80)
-  Backend  -> http://localhost:3000
-  Seed:    docker exec -it backend node seedAdmin.js
+## Start (no Docker — verified 2026-08-21)
 
-## Verify Primary User Flow
+1. Start MongoDB on :27017 using mongodb-memory-server (already a backend devDependency — downloads the mongod binary on first run):
 
-1. Open http://localhost:5173/ -> landing page with BBMS branding
-2. Click Login -> suraj@admin.com / bbms@admin -> submit
-3. Redirected to /admin -> sidebar: Overview, Verification, Facilities, Donors
-4. Header shows Suraj Savle / Admin
+       cd backend && node -e "const {MongoMemoryServer}=require('mongodb-memory-server');(async()=>{const m=await MongoMemoryServer.create({instance:{port:27017,ip:'127.0.0.1',dbName:'bbms'}});console.log('MONGO READY',m.getUri());setInterval(()=>{},1<<30);})().catch(e=>{console.error(e);process.exit(1)})" > /tmp/mongo.log 2>&1 &
 
-API check: POST to http://localhost:5000/api/auth/login
-  body: email=suraj@admin.com password=bbms@admin
-  response: success=true redirect=/admin token=...
+   Wait for `MONGO READY` in /tmp/mongo.log (first run downloads ~70 MB mongod).
 
-Evidence (2026-06-03):
-  tc-1 fl_tGnEw6S7 landing page
-  tc-2 fl_pKtTpE2i login page
-  tc-3 fl_no7zwq2d post-login admin
-  tc-4 fl_cbMg6Pkc admin dashboard
-  tc-5 fl_iCQyrztW admin donors
+2. Seed admin (first time only): `cd backend && node seedAdmin.js`
+3. Start backend: `cd backend && npm start` (nodemon) → http://localhost:5000 — expect "Server running on port 5000" + "MongoDB Connected"
+4. Start frontend: `cd frontend && npm run dev` → http://localhost:5173
+
+Admin login: suraj@admin.com / bbms@admin
+
+NOTE on backgrounding inside the agent sandbox: redirect ALL fds of the background process
+(`> log 2>&1 < /dev/null`) and keep it out of the tool call's stdout pipe, or the exec call
+hangs until its timeout (the process still starts — only the call is delayed).
+
+## Start (Docker, when available)
+
+    docker compose up --build
+    # frontend -> http://localhost (port 80), backend -> http://localhost:3000
+    # seed admin: docker exec -it backend node seedAdmin.js
+
+## Verify Primary User Flow (verified 2026-08-21)
+
+API:
+    curl -X POST http://localhost:5000/api/auth/login -H 'Content-Type: application/json' \
+      -d '{"email":"suraj@admin.com","password":"bbms@admin"}'
+    # -> 200 {"success":true,"token":"...","user":{"role":"admin"},"redirect":"/admin"}
+    # GET /api/auth/profile with Bearer token -> 200; wrong password -> 401
+
+UI (Playwright + headless Chromium; deps via `sudo npx playwright install-deps chromium`):
+1. http://localhost:5173/ → landing renders (h1 "BBMS")
+2. /login → fill input[type=email] + input[type=password] → button[type=submit]
+3. Redirects to /admin, JWT in localStorage, 0 console errors
+
+Evidence captured 2026-08-21 (sandbox /tmp/pw/shots/): 01-landing.png, 02-login.png,
+03-admin-dashboard.png; API login/profile/401 checks; backend 62/62 tests green.
 
 ## Verified Commands
 
-- Typecheck: not_discovered
-- Lint: cd frontend && npx eslint . (exits 0; 6 pre-existing errors + 9 warnings)
-- Test: not_discovered (backend placeholder test only)
-- Scoped lint: cd frontend && npx eslint src/path/to/changed/file.jsx
+- Test: `cd backend && npm test` — 62/62 passed (vitest + supertest + mongodb-memory-server; no running services needed)
+- Lint: `cd frontend && npm run lint` — runs; 5 errors + 9 warnings, all pre-existing in repo source
+- Build: `cd frontend && npm run build` — succeeds (chunk-size warning only)
+- Typecheck: not_supported (no TypeScript in repo)
+- Scoped lint: `cd frontend && npx eslint src/path/to/file.jsx`
+- Scoped test: `cd backend && npx vitest run tests/auth.test.js`
 
 ## Sandbox Snapshot
 
-- snapshotId: 3rkceahecrrhsu4wr59f:default
-- Captured: 2026-06-03T15:14:03.049Z
-- Restoring this snapshot reproduces the verified-healthy state.
+- snapshotId: s31f3xkqek037e09s16q:default
+- Captured: 2026-08-21T17:36:11.348Z
+- Restoring this snapshot reproduces the verified-healthy state (deps installed, env files written, Mongo + backend + frontend running).
 
 ## Known Blockers / Workarounds
 
-1. Docker unavailable in sandbox -- workaround: MongoDB via apt, node directly. Stack healthy.
-2. Pre-existing syntax error in frontend/src/components/layouts/DashboardLayout.jsx
-   lines 206-207: duplicate const res line removed during setup (committed in setup PR).
-3. Admin stats widget shows Failed to load dashboard -- AdminDashboard.jsx uses hardcoded
-   /api/admin/dashboard without VITE_API_URL prefix. Pre-existing code issue, not blocking.
-4. ESLint 6 errors 9 warnings -- all pre-existing. Not introduced by setup.
+1. Docker unavailable in sandbox — workaround: mongodb-memory-server provides standalone mongod on :27017. Stack fully healthy without Docker.
+2. Frontend lint has 5 pre-existing errors + 9 warnings (react-hooks/exhaustive-deps, no-unused-vars) — not introduced by setup; do not "fix" incidentally in unrelated PRs.
+3. No TypeScript / no typecheck target in repo — typecheck is not_supported, not a failure.
+4. Backend has no dedicated /health endpoint — use GET /api/doc (200) or POST /api/auth/login as liveness probes.

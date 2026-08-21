@@ -1,4 +1,45 @@
-# Repo guidance
+# Blood Bank Management System (BBMS) — Repo Guidance
+
+Web platform for managing blood donations, hospital requests, and inventory tracking. Role-based access (admin / donor / hospital / blood-lab) with JWT auth.
+
+## Stack
+
+| Layer | Technology |
+|---|---|
+| Backend | Node.js 20 (ESM), Express 5, Mongoose 8, JWT (jsonwebtoken), bcryptjs, Swagger UI at `/api/doc` |
+| Frontend | React 19, Vite 7, Tailwind CSS 4, react-router-dom 7, axios, react-hot-toast |
+| Database | MongoDB (required) |
+| Infra | Docker Compose (backend :3000→5000, frontend :80, mongo :27017) — optional; sandbox runs services directly |
+
+## Commands
+
+Run from repo root unless noted.
+
+| Action | Command |
+|---|---|
+| Install backend deps | `cd backend && npm ci` |
+| Install frontend deps | `cd frontend && npm ci` |
+| Start MongoDB (no Docker) | one-liner in `.obvious/skills/local-dev/SKILL.md` (mongodb-memory-server, :27017) |
+| Seed admin (first run) | `cd backend && node seedAdmin.js` |
+| Start backend (dev) | `cd backend && npm start` → http://localhost:5000 (nodemon) |
+| Start frontend (dev) | `cd frontend && npm run dev` → http://localhost:5173 |
+| Backend tests | `cd backend && npm test` (vitest + in-memory Mongo — no running services needed) |
+| Frontend lint | `cd frontend && npm run lint` |
+| Frontend build | `cd frontend && npm run build` |
+| Full stack via Docker | `docker compose up --build` (frontend :80, backend :3000) |
+
+## Environment
+
+`backend/.env` (from `backend/.env.example`; gitignored):
+- `MONGO_URI` — e.g. `mongodb://127.0.0.1:27017/bbms`
+- `JWT_SECRET` — any long random string for local dev
+- `PORT` — default `5000`
+
+`frontend/.env` (gitignored):
+- `VITE_API_URL` — e.g. `http://localhost:5000` (unset = same-origin; set it when dev servers run split)
+- `VITE_WEBSITE_NAME` — optional header site name
+
+Seeded admin login: `suraj@admin.com` / `bbms@admin` (hardcoded in `backend/seedAdmin.js`).
 
 ## Codebase Map
 
@@ -6,60 +47,38 @@ See `.obvious/codebase-map.md`.
 
 ## Rules
 
-<!-- synthesized from: README.md, CONTRIBUTING.md (files found in SCAN) — agent-relevant rules only -->
-
-- **Commit messages:** Use meaningful commit messages (see CONTRIBUTING.md)
-- **Branch naming:** Use descriptive feature branch names (`feature-branch-name`)
-- **No secrets:** Never push `.env` or sensitive data to git
-- **Folder structure:** Follow the existing `backend/` and `frontend/` separation
-- **Code quality:** Write clean, readable code; add comments where needed
-- **PR descriptions:** Write PR descriptions clearly
-- **Stack:** Backend = Node.js/Express/MongoDB; Frontend = React/Vite/Tailwind
-- **Docker:** Docker Compose is the recommended run approach (when Docker is available)
-- **Admin seed:** Run `node seedAdmin.js` from `backend/` on first setup to create admin user
+- Meaningful commit messages; descriptive branch names (`feature-branch-name`) — see CONTRIBUTING.md
+- Never push `.env` or secrets (already gitignored)
+- Keep the `backend/` / `frontend/` separation
+- Run `node seedAdmin.js` from `backend/` on first setup
+- Backend CORS allows only origins `http://localhost:5173` and `:5174`
 
 ## Local Verification
 
-> **Warning:** Running full-repo typecheck, lint, or tests may OOM or timeout in the sandbox for large repos.
-> Use the scoped commands below when verifying changes.
+> **Warning:** Full-repo checks are safe here (small repo, fast suite), but scoped commands are cheaper.
 
 ### Verified Commands
-
 <!-- local-verification-summary:v1 -->
-- **Typecheck command:** not_discovered
-- **Lint command:** `cd frontend && npx eslint .` | verified (exits 0; 6 errors + 9 warnings are pre-existing)
-- **Test command:** not_discovered (backend: placeholder only — `echo "Error: no test specified"`)
-- **Scoped typecheck:** not_supported
+- **Typecheck command:** not_supported (no TypeScript / no tsc config in repo)
+- **Lint command:** `cd frontend && npm run lint` | runs; 5 errors + 9 warnings are PRE-EXISTING in repo source — not new breakage
+- **Test command:** `cd backend && npm test` | verified 2026-08-21 — 62/62 passed (4 files)
 - **Scoped lint:** `cd frontend && npx eslint src/path/to/file.jsx` | supported
-- **Scoped test:** not_supported
-- **Full-repo check safe:** yes — no monorepo, suite is fast
-- **Scoped alternatives discovered:** yes — eslint supports file paths
+- **Scoped test:** `cd backend && npx vitest run tests/auth.test.js` | supported
+- **Build command:** `cd frontend && npm run build` | verified 2026-08-21 — succeeds (chunk-size warning only)
+- **Full-repo check safe:** yes
 <!-- /local-verification-summary -->
 
-### Scoped Workflow
-
-Run these commands to verify changed files without triggering a full-repo scan:
-
-1. **Lint changed files:** `cd frontend && npx eslint <path/to/changed/file.jsx>`
+### Primary Flow (verified 2026-08-21)
+1. API: `POST /api/auth/login` (seeded admin) → 200 + JWT; `GET /api/auth/profile` with Bearer token → 200; wrong password → 401
+2. UI (Playwright + headless Chromium): landing `/` renders BBMS branding → `/login` → admin login → redirect to `/admin`, JWT in localStorage, 0 console errors
 
 ## Sandbox Snapshot
 
-- **Snapshot ID:** `3rkceahecrrhsu4wr59f:default`
-- **Captured:** `2026-06-03T15:14:03.049Z`
-- **Dev stack healthy:** yes
+- **Snapshot ID:** `s31f3xkqek037e09s16q:default`
+- **Captured:** `2026-08-21T17:36:11.348Z`
+- **Dev stack healthy:** yes — MongoDB :27017, backend :5000, frontend :5173 running and verified at capture time
+- Restoring this snapshot reproduces the verified-healthy state.
 
-## Bibliography
+## Setup Details
 
-4 nodes upserted (0 reused from prior runs):
-- `bbms-app` (system) — Blood Bank Management System root
-- `bbms-backend` (system, child of bbms-app) — Express/Node API
-- `bbms-frontend` (system, child of bbms-app) — React/Vite frontend
-- `bbms-mongodb` (infrastructure, child of bbms-app) — MongoDB database
-
-## Security Scan
-
-> **Status:** security_scan_queued — the scan runs asynchronously. Results will appear in Product Atlas when complete.
-
-## Runbooks
-
-[Populated by autobuild-runbooks skill when requested. See `.obvious/runbooks/` after that skill runs.]
+See `.obvious/skills/local-dev/SKILL.md` for the full from-scratch onboarding record (verified 2026-08-21).
