@@ -1,7 +1,7 @@
 ---
 name: local-dev
-version: 1.0.0
-description: Bring this repo local dev environment up from scratch.
+version: 2.0.0
+description: Bring this repo's local dev environment up from scratch (no Docker required).
 category: local-dev
 triggers:
   - local dev setup
@@ -9,87 +9,103 @@ triggers:
   - start dev server
   - bring up local stack
 author: autobuild-setup
-created: 2026-06-03
+created: 2026-08-25
 ---
+
+Verified 2026-08-25 on sandbox `cmp_PWNZEagr`. Stack: MongoDB 8.2.6 :27017, Express :5000, Vite :5173.
 
 ## Prerequisites
 
-- Node.js v20.x (verified: v20.20.2)
-- npm v10.x (verified: v10.8.2)
-- MongoDB v8.0 (install via apt if not present)
-- Docker (optional): Docker Compose recommended when available
+- Node.js v20.x (verified: v20.20.2) + npm v10.x (verified: v10.8.2)
+- Docker is NOT available in this sandbox — use the native procedure below
+- tmux (installed) for long-running services
 
 ## Install
 
-MongoDB 8.0 on Linux:
-  sudo bash apt install mongodb-org -- see README for full apt command
+```bash
+cd backend  && npm install   # also caches a mongod binary, see below
+cd frontend && npm install
+```
 
-Backend: cd backend && npm install
-Frontend: cd frontend && npm install
+## Start MongoDB (no system mongod, no Docker)
+
+`backend/npm install` pulls `mongodb-memory-server`, whose postinstall caches a real
+mongod binary. Run it as a normal standalone daemon:
+
+```bash
+MONGOD=backend/node_modules/.cache/mongodb-memory-server/mongod-x64-debian-8.2.6
+mkdir -p ~/bbms-mongo-data
+$MONGOD --dbpath ~/bbms-mongo-data --port 27017 --bind_ip 127.0.0.1 \
+  --fork --logpath ~/bbms-mongo-data/mongod.log
+```
+
+Verify: `echo > /dev/tcp/127.0.0.1/27017 && echo up`
 
 ## Environment
 
-backend/.env:
-  MONGO_URI=mongodb://127.0.0.1:27017/bbms
-  JWT_SECRET=dev-local-secret-do-not-use-in-production
-  PORT=5000
+`backend/.env` (gitignored — create it):
+```
+MONGO_URI=mongodb://127.0.0.1:27017/bbms
+JWT_SECRET=dev-local-secret-do-not-use-in-production
+PORT=5000
+```
 
-frontend/.env:
-  VITE_API_URL=http://localhost:5000
-  VITE_WEBSITE_NAME=Blood Bank Management System
+`frontend/.env` (gitignored — create it; **required**, see Gotcha 1):
+```
+VITE_API_URL=http://localhost:5000
+```
 
-## Start
+## Start services (tmux)
 
-Without Docker:
-  1. sudo mkdir -p /data/db && sudo chown USER /data/db
-  2. mongod --dbpath /data/db --fork --logpath /var/log/mongodb/mongod.log --bind_ip 127.0.0.1
-  3. cd backend && node seedAdmin.js   # first time only
-  4. cd backend && nohup node server.js > /tmp/backend.log 2>&1 &
-  5. cd frontend && nohup npm run dev > /tmp/frontend.log 2>&1 &
-  Admin: suraj@admin.com / bbms@admin
+```bash
+cd backend && node seedAdmin.js    # first time only → suraj@admin.com / bbms@admin
+tmux new-session -d -s backend 'cd backend  && exec node server.js > /tmp/backend.log 2>&1'
+tmux new-session -d -s vite    'cd frontend && exec npm run dev   > /tmp/frontend.log 2>&1'
+```
 
-Docker (when available):
-  docker compose up --build -d
-  Frontend -> http://localhost (port 80)
-  Backend  -> http://localhost:3000
-  Seed:    docker exec -it backend node seedAdmin.js
+Backend CORS already allows http://localhost:5173. Logs: `tail /tmp/backend.log /tmp/frontend.log`.
 
 ## Verify Primary User Flow
 
-1. Open http://localhost:5173/ -> landing page with BBMS branding
-2. Click Login -> suraj@admin.com / bbms@admin -> submit
-3. Redirected to /admin -> sidebar: Overview, Verification, Facilities, Donors
-4. Header shows Suraj Savle / Admin
+Browser (agent-browser, Chrome engine — installed globally with `--with-deps`):
 
-API check: POST to http://localhost:5000/api/auth/login
-  body: email=suraj@admin.com password=bbms@admin
-  response: success=true redirect=/admin token=...
+1. `agent-browser --engine chrome --args "--no-sandbox --disable-setuid-sandbox" open http://localhost:5173/` → landing page ("Blood Management System", nav with Login)
+2. Login link → /login → fill `suraj@admin.com` / `bbms@admin` → submit
+3. Redirects to `/admin` → header "Suraj Savle / Admin", sidebar Overview/Verification/Facilities/Donors, live stats from Mongo (e.g. `upcomingCamps: 3`)
 
-Evidence (2026-06-03):
-  tc-1 fl_tGnEw6S7 landing page
-  tc-2 fl_pKtTpE2i login page
-  tc-3 fl_no7zwq2d post-login admin
-  tc-4 fl_cbMg6Pkc admin dashboard
-  tc-5 fl_iCQyrztW admin donors
+API shortcut:
+```bash
+curl -X POST http://localhost:5000/api/auth/login -H 'Content-Type: application/json' \
+  -d '{"email":"suraj@admin.com","password":"bbms@admin"}'   # → success:true, token, redirect:/admin
+```
+
+Evidence captured 2026-08-25 (~/work/evidence/): 01-landing.png, 02-login.png,
+03-post-login.png, 04-admin-dashboard.png, 05-admin-donors.png.
 
 ## Verified Commands
 
-- Typecheck: not_discovered
-- Lint: cd frontend && npx eslint . (exits 0; 6 pre-existing errors + 9 warnings)
-- Test: not_discovered (backend placeholder test only)
-- Scoped lint: cd frontend && npx eslint src/path/to/changed/file.jsx
+- Lint: `cd frontend && npx eslint .` — exit 0 (5 errors + 9 warnings pre-existing)
+- Tests: `cd backend && npm test` — 62/62 passed, self-contained (mongodb-memory-server)
+- Build: `cd frontend && npm run build` — succeeds (~3s)
+- Typecheck: not applicable (no TypeScript)
 
 ## Sandbox Snapshot
 
-- snapshotId: 3rkceahecrrhsu4wr59f:default
-- Captured: 2026-06-03T15:14:03.049Z
-- Restoring this snapshot reproduces the verified-healthy state.
+- snapshotId: `s6tmh4urdg6nm9cjl678:default`
+- Captured: 2026-08-25T17:40:24.027Z
+- Restoring this snapshot reproduces the verified-healthy state (deps + env + seeded admin).
+- After a sandbox restart the tmux sessions/mongod may be down: re-run "Start MongoDB" and "Start services" above (data in ~/bbms-mongo-data persists in the snapshot).
 
-## Known Blockers / Workarounds
+## Gotchas
 
-1. Docker unavailable in sandbox -- workaround: MongoDB via apt, node directly. Stack healthy.
-2. Pre-existing syntax error in frontend/src/components/layouts/DashboardLayout.jsx
-   lines 206-207: duplicate const res line removed during setup (committed in setup PR).
-3. Admin stats widget shows Failed to load dashboard -- AdminDashboard.jsx uses hardcoded
-   /api/admin/dashboard without VITE_API_URL prefix. Pre-existing code issue, not blocking.
-4. ESLint 6 errors 9 warnings -- all pre-existing. Not introduced by setup.
+1. **`frontend/.env` is mandatory.** Without `VITE_API_URL` the SPA fetches same-origin
+   `/api/*` from the Vite dev server (no proxy configured in `vite.config.js`) and login
+   fails with "Server error: 404". Vite reads `.env` at startup only — restart `npm run dev`
+   after creating it.
+2. **Docker unavailable** in this sandbox — `docker compose up` is not an option here.
+3. **Do not `pkill -f` broadly** in the exec channel: patterns like `server.js`/`vite` match
+   the wrapper shell and kill the command session. Kill by PID or use tmux.
+4. Pre-existing ESLint errors (5) + warnings (9) — not introduced by setup; CI lint step is
+   `continue-on-error` by design.
+5. CI comment "graceful until vitest test suite lands" is stale — the suite exists and passes
+   (62/62). The `continue-on-error` on the backend test step can be safely removed.
